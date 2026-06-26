@@ -1,0 +1,6 @@
+# Acquire LLC service accounts — no interactive login, no sudo
+# Services run in Docker with cap_drop=ALL; these users exist only as
+# process owners on the host for HSM device permissions.
+
+signer-svc ALL=(ALL) !ALL
+relay-svc  ALL=(ALL) !ALL
