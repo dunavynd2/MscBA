@@ -99,8 +99,12 @@ services:
     cap_drop:
       - ALL
     read_only: true
+    environment:
+      # Dev: HSM_LIB=/usr/lib/softhsm/libsofthsm2.so (default)
+      # Prod: HSM_LIB=/usr/safenet/lunaclient/lib/libCryptoki2_64.so
+      - HSM_LIB=${HSM_LIB}
     devices:
-      - /dev/hsm0:/dev/hsm0   # Luna HSM passthrough
+      - /dev/hsm0:/dev/hsm0   # Luna HSM passthrough (omit in dev)
     environment:
       - HSM_SLOT=${HSM_SLOT}
       - HSM_PIN=${HSM_PIN}

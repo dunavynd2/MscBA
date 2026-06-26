@@ -2,12 +2,10 @@ package signer
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/miekg/pkcs11"
 )
-
-// Luna HSM PKCS#11 library path (SafeNet/Thales Luna Network HSM)
-const lunaLibPath = "/usr/safenet/lunaclient/lib/libCryptoki2_64.so"
 
 // HSM is the interface for KEK operations.
 // The KEK never leaves hardware; callers receive only the unwrapped DEK
@@ -17,16 +15,24 @@ type HSM interface {
 	Close() error
 }
 
-// LunaHSM implements HSM against a SafeNet Luna HSM via PKCS#11.
-type LunaHSM struct {
+// PKCS11HSM implements HSM against any PKCS#11-compatible token.
+//
+// Dev default:  SoftHSM2  — /usr/lib/softhsm/libsofthsm2.so
+// Production:   Luna HSM  — /usr/safenet/lunaclient/lib/libCryptoki2_64.so
+// Override via: HSM_LIB env var
+type PKCS11HSM struct {
 	ctx     *pkcs11.Ctx
 	session pkcs11.SessionHandle
 }
 
-func NewLunaHSM(slotID uint, pin string) (*LunaHSM, error) {
-	ctx := pkcs11.New(lunaLibPath)
+func NewPKCS11HSM(slotID uint, pin string) (*PKCS11HSM, error) {
+	lib := os.Getenv("HSM_LIB")
+	if lib == "" {
+		lib = "/usr/lib/softhsm/libsofthsm2.so"
+	}
+	ctx := pkcs11.New(lib)
 	if ctx == nil {
-		return nil, fmt.Errorf("failed to load PKCS#11 library: %s", lunaLibPath)
+		return nil, fmt.Errorf("failed to load PKCS#11 library: %s", lib)
 	}
 	if err := ctx.Initialize(); err != nil {
 		ctx.Destroy()
@@ -47,13 +53,13 @@ func NewLunaHSM(slotID uint, pin string) (*LunaHSM, error) {
 		return nil, fmt.Errorf("hsm login: %w", err)
 	}
 
-	return &LunaHSM{ctx: ctx, session: session}, nil
+	return &PKCS11HSM{ctx: ctx, session: session}, nil
 }
 
 // UnwrapDEK uses the KEK (identified by label, residing in HSM) to AES-KW unwrap
 // the wrappedDEK, briefly exports the DEK value for use in Go AES-GCM, then
 // destroys the transient DEK object inside the HSM.
-func (h *LunaHSM) UnwrapDEK(kekLabel string, wrappedDEK []byte) ([]byte, error) {
+func (h *PKCS11HSM) UnwrapDEK(kekLabel string, wrappedDEK []byte) ([]byte, error) {
 	kekHandle, err := h.findKey(kekLabel)
 	if err != nil {
 		return nil, err
@@ -90,7 +96,7 @@ func (h *LunaHSM) UnwrapDEK(kekLabel string, wrappedDEK []byte) ([]byte, error) 
 	return dek, nil
 }
 
-func (h *LunaHSM) findKey(label string) (pkcs11.ObjectHandle, error) {
+func (h *PKCS11HSM) findKey(label string) (pkcs11.ObjectHandle, error) {
 	template := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_SECRET_KEY),
 		pkcs11.NewAttribute(pkcs11.CKA_LABEL, label),
@@ -109,7 +115,7 @@ func (h *LunaHSM) findKey(label string) (pkcs11.ObjectHandle, error) {
 	return objs[0], nil
 }
 
-func (h *LunaHSM) Close() error {
+func (h *PKCS11HSM) Close() error {
 	h.ctx.Logout(h.session)
 	h.ctx.CloseSession(h.session)
 	h.ctx.Finalize()

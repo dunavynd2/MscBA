@@ -28,7 +28,7 @@ func main() {
 	}
 	defer al.Close()
 
-	hsm, err := signer.NewLunaHSM(cfg.HSMSlot, cfg.HSMPin)
+	hsm, err := signer.NewPKCS11HSM(cfg.HSMSlot, cfg.HSMPin)
 	if err != nil {
 		log.Fatalf("hsm init: %v", err)
 	}
