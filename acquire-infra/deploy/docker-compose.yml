@@ -1,0 +1,127 @@
+networks:
+  # Internet-facing: Erigon p2p
+  dmz:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+
+  # Internal services — no direct internet
+  internal:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.21.0.0/24
+
+  # Signing network — maximally isolated; only relay can reach signer
+  signing:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.22.0.0/24
+
+services:
+
+  # Gnosis execution client — p2p needs internet, RPC stays internal
+  erigon:
+    image: thorax/erigon:latest
+    networks:
+      - dmz
+      - internal
+    ports:
+      - "30303:30303/tcp"   # p2p discovery
+      - "30303:30303/udp"
+      # 8545/8546 intentionally NOT published — internal only
+    volumes:
+      - erigon-data:/home/erigon/.local/share/erigon
+    command: >
+      --chain=gnosis
+      --datadir=/home/erigon/.local/share/erigon
+      --http --http.addr=0.0.0.0 --http.port=8545
+      --http.api=eth,net,web3
+      --ws --ws.port=8546
+      --metrics
+    restart: unless-stopped
+
+  # Cloudflare WARP + mTLS API gateway — sole public ingress (port 443)
+  api-gateway:
+    image: acquire/api-gw:latest
+    networks:
+      - dmz
+      - internal
+    ports:
+      - "443:443"
+    environment:
+      - CF_TOKEN=${CF_TOKEN}
+    depends_on:
+      - relay
+    restart: unless-stopped
+
+  # Bridge relay — sits between api-gw and signer; no internet
+  relay:
+    image: acquire/relay:latest
+    networks:
+      - internal
+      - signing
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    environment:
+      - HSM_SLOT=${HSM_SLOT}
+      - HSM_PIN=${HSM_PIN}
+      - KEK_LABEL=${KEK_LABEL}
+      - CHAIN_ID=100
+      - PRIVATE_NET_ID=8000
+      - SOURCE_RPC_URL=ws://private-chain:8546
+      - DEST_RPC_URL=ws://erigon:8546
+      - BRIDGE_LOCK_ADDR=${BRIDGE_LOCK_ADDR}
+      - BRIDGE_RELEASE_ADDR=${BRIDGE_RELEASE_ADDR}
+      - AUDIT_LOG=/var/log/acquire/audit.jsonl
+    volumes:
+      - wrapped-keys:/keys:ro
+      - audit-logs:/var/log/acquire
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    restart: unless-stopped
+
+  # Signing service — only reachable from relay via signing network
+  signer:
+    image: acquire/signer:latest
+    networks:
+      signing:
+        ipv4_address: 172.22.0.10
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    devices:
+      - /dev/hsm0:/dev/hsm0   # Luna HSM passthrough
+    environment:
+      - HSM_SLOT=${HSM_SLOT}
+      - HSM_PIN=${HSM_PIN}
+      - KEK_LABEL=${KEK_LABEL}
+      - LISTEN_ADDR=172.22.0.10:8443
+      - TLS_CERT=/certs/signer.crt
+      - TLS_KEY=/certs/signer.key
+      - AUDIT_LOG=/var/log/acquire/audit.jsonl
+    volumes:
+      - wrapped-keys:/keys:ro
+      - signer-certs:/certs:ro
+      - audit-logs:/var/log/acquire
+    tmpfs:
+      - /tmp:size=8m,mode=1777
+    restart: unless-stopped
+
+volumes:
+  erigon-data:
+  wrapped-keys:
+    driver: local
+  signer-certs:
+    driver: local
+  audit-logs:
+    driver: local
