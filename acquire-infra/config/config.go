@@ -39,28 +39,32 @@ type ChainConfig struct {
 	P2PPort   int
 }
 
-var defaultChains = map[string]ChainConfig{
-	"eth": {
-		ChainID:   big.NewInt(1),
-		DerivPath: "m/44'/60'/0'/0/0",
-		CoinType:  60,
-		RPCPort:   8545,
-		P2PPort:   30303,
-	},
-	"gnosis": {
-		ChainID:   big.NewInt(100),
-		DerivPath: "m/44'/60'/0'/0/0",
-		CoinType:  60,
-		RPCPort:   8545,
-		P2PPort:   30303,
-	},
-	"zec": {
-		ChainID:   big.NewInt(0),
-		DerivPath: "m/44'/133'/0'/0/0",
-		CoinType:  133,
-		RPCPort:   8232,
-		P2PPort:   8233,
-	},
+// DefaultChains returns the built-in BIP44 chain configurations.
+// Returns a fresh map on each call so callers can safely mutate it.
+func DefaultChains() map[string]ChainConfig {
+	return map[string]ChainConfig{
+		"eth": {
+			ChainID:   big.NewInt(1),
+			DerivPath: "m/44'/60'/0'/0/0",
+			CoinType:  60,
+			RPCPort:   8545,
+			P2PPort:   30303,
+		},
+		"gnosis": {
+			ChainID:   big.NewInt(100),
+			DerivPath: "m/44'/60'/0'/0/0",
+			CoinType:  60,
+			RPCPort:   8545,
+			P2PPort:   30303,
+		},
+		"zec": {
+			ChainID:   big.NewInt(0),
+			DerivPath: "m/44'/133'/0'/0/0",
+			CoinType:  133,
+			RPCPort:   8232,
+			P2PPort:   8233,
+		},
+	}
 }
 
 func Load() (*Config, error) {
@@ -99,7 +103,7 @@ func Load() (*Config, error) {
 		ChainID:      chainID,
 		PrivateNetID: privateNetID,
 		AuditLogPath: getEnvOrDefault("AUDIT_LOG", "/var/log/acquire/audit.jsonl"),
-		Chains:       defaultChains,
+		Chains:       DefaultChains(),
 	}
 
 	if rpcURL := os.Getenv("RPC_URL"); rpcURL != "" {

@@ -96,6 +96,80 @@ func (h *PKCS11HSM) UnwrapDEK(kekLabel string, wrappedDEK []byte) ([]byte, error
 	return dek, nil
 }
 
+// GenerateKEK creates a non-extractable AES-256 wrapping key in the HSM under label.
+// Returns an error if the label already exists — intentional; re-provisioning requires
+// explicit deletion first.  Called once during initial provisioning.
+func (h *PKCS11HSM) GenerateKEK(label string) error {
+	// Guard: reject if label already present
+	tmpl := []*pkcs11.Attribute{
+		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_SECRET_KEY),
+		pkcs11.NewAttribute(pkcs11.CKA_LABEL, label),
+	}
+	if err := h.ctx.FindObjectsInit(h.session, tmpl); err != nil {
+		return fmt.Errorf("find kek init: %w", err)
+	}
+	objs, _, _ := h.ctx.FindObjects(h.session, 1)
+	h.ctx.FindObjectsFinal(h.session)
+	if len(objs) > 0 {
+		return fmt.Errorf("KEK %q already exists — delete before re-provisioning", label)
+	}
+
+	mech := []*pkcs11.Mechanism{
+		pkcs11.NewMechanism(pkcs11.CKM_AES_KEY_GEN, nil),
+	}
+	keyTmpl := []*pkcs11.Attribute{
+		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_SECRET_KEY),
+		pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, pkcs11.CKK_AES),
+		pkcs11.NewAttribute(pkcs11.CKA_VALUE_LEN, 32),      // AES-256
+		pkcs11.NewAttribute(pkcs11.CKA_LABEL, label),
+		pkcs11.NewAttribute(pkcs11.CKA_TOKEN, true),         // persist across sessions
+		pkcs11.NewAttribute(pkcs11.CKA_SENSITIVE, true),
+		pkcs11.NewAttribute(pkcs11.CKA_EXTRACTABLE, false),  // never exportable
+		pkcs11.NewAttribute(pkcs11.CKA_WRAP, true),
+		pkcs11.NewAttribute(pkcs11.CKA_UNWRAP, true),
+		pkcs11.NewAttribute(pkcs11.CKA_ENCRYPT, false),
+		pkcs11.NewAttribute(pkcs11.CKA_DECRYPT, false),
+	}
+	if _, err := h.ctx.GenerateKey(h.session, mech, keyTmpl); err != nil {
+		return fmt.Errorf("generate KEK %q: %w", label, err)
+	}
+	return nil
+}
+
+// WrapDEK imports dek as a transient HSM session object, wraps it under the KEK
+// using AES Key Wrap (RFC 3394), then destroys the transient object.
+// Used during provisioning to produce the WrappedDEK stored in the wallet file.
+func (h *PKCS11HSM) WrapDEK(kekLabel string, dek []byte) ([]byte, error) {
+	kekHandle, err := h.findKey(kekLabel)
+	if err != nil {
+		return nil, err
+	}
+
+	// Import the plaintext DEK into the HSM as a session-only object
+	importTmpl := []*pkcs11.Attribute{
+		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_SECRET_KEY),
+		pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, pkcs11.CKK_AES),
+		pkcs11.NewAttribute(pkcs11.CKA_VALUE, dek),
+		pkcs11.NewAttribute(pkcs11.CKA_EXTRACTABLE, true),
+		pkcs11.NewAttribute(pkcs11.CKA_SENSITIVE, false),
+		pkcs11.NewAttribute(pkcs11.CKA_TOKEN, false), // session object only — not persisted
+	}
+	dekHandle, err := h.ctx.CreateObject(h.session, importTmpl)
+	if err != nil {
+		return nil, fmt.Errorf("import DEK to HSM: %w", err)
+	}
+	defer h.ctx.DestroyObject(h.session, dekHandle)
+
+	mech := []*pkcs11.Mechanism{
+		pkcs11.NewMechanism(pkcs11.CKM_AES_KEY_WRAP, nil),
+	}
+	wrapped, err := h.ctx.WrapKey(h.session, mech, kekHandle, dekHandle)
+	if err != nil {
+		return nil, fmt.Errorf("wrap DEK under %q: %w", kekLabel, err)
+	}
+	return wrapped, nil
+}
+
 func (h *PKCS11HSM) findKey(label string) (pkcs11.ObjectHandle, error) {
 	template := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_SECRET_KEY),

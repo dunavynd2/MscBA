@@ -83,6 +83,13 @@ func aesGCMDecrypt(key, ciphertext []byte) ([]byte, error) {
 	return gcm.Open(nil, nonce, ciphertext[gcm.NonceSize():], nil)
 }
 
+// UnwrapKey decrypts a single wrapped key using the DEK.
+// Lower-level than UnwrapSigningKey — bypasses the chain-name map,
+// useful when working with per-account WrappedKey fields directly.
+func UnwrapKey(dek, wrappedKey []byte) ([]byte, error) {
+	return aesGCMDecrypt(dek, wrappedKey)
+}
+
 // Wipe zeroes b and prevents the compiler from eliding the loop.
 func Wipe(b []byte) {
 	for i := range b {
