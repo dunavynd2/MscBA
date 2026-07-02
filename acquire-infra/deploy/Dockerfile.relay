@@ -1,0 +1,29 @@
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /build
+
+# Copy module files
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy source
+COPY . .
+
+# Build relay binary
+RUN CGO_ENABLED=0 GOOS=linux go build -o relay ./cmd/relay
+
+FROM alpine:3.18
+
+RUN apk add --no-cache ca-certificates curl
+
+WORKDIR /app
+
+COPY --from=builder /build/relay .
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s CMD curl -f http://127.0.0.1:8080/healthz || exit 1
+
+CMD ["./relay"]
