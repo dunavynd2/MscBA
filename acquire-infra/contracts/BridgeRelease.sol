@@ -10,6 +10,9 @@ contract BridgeRelease is ReentrancyGuard, Ownable {
     /// @notice The authorised relay address — set at deploy time and immutable.
     address public immutable relay;
 
+    /// @notice The destination chain ID — set at deploy time and immutable.
+    uint256 public immutable destinationChainId;
+
     /// @notice (sourceChainId, lockNonce) → released. Prevents replay attacks across different source chains.
     mapping(uint256 => mapping(uint64 => bool)) public processed;
 
@@ -26,9 +29,11 @@ contract BridgeRelease is ReentrancyGuard, Ownable {
     error ReleaseFailed();
     error InsufficientBalance();
 
-    constructor(address _relay, address initialOwner) Ownable(initialOwner) {
+    constructor(address _relay, address initialOwner, uint256 _destinationChainId) Ownable(initialOwner) {
         require(_relay != address(0), "BridgeRelease: zero relay");
+        require(_destinationChainId > 0, "BridgeRelease: invalid chain ID");
         relay = _relay;
+        destinationChainId = _destinationChainId;
     }
 
     /// @notice Release tokens to recipient. Only callable by the relay.
