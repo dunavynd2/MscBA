@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  private-geth:
+    build:
+      context: ./go-ethereum-master/go-ethereum-master
+      dockerfile: ./Dockerfile
+    container_name: prop-geth-custom-8000
+    volumes:
+      - ./geth-data:/root/.ethereum
+    ports:
+      - "8545:8545"
+      - "8546:8546"
+      - "30303:30303"
+      - "30303:30303/udp"
+    command:
+      - --networkid=8000
+      - --nodiscover
+      - --dev
+      - --http
+      - --http.addr=0.0.0.0
+      - --http.api=eth,net,web3,personal
+      - --ws
+      - --ws.addr=0.0.0.0
+      - --ws.port=8546
+      - --ws.api=eth,net,web3

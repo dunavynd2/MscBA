@@ -1,0 +1,20 @@
+# Large vendored copy — not part of this project
+go-ethereum-master/
+
+# Zip archives
+*.zip
+
+# Build artifacts
+build/
+
+# Env files with secrets
+.env
+
+# IDE session logs
+.backboard/
+*/.backboard/
+
+# Go
+*.exe
+*.test
+vendor/
