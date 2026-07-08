@@ -23,7 +23,7 @@ contract BridgeLock is ReentrancyGuard, Ownable {
 
     /// @notice Lock msg.value to be released to recipient on the destination chain.
     /// @param recipient         Destination chain address to receive the released tokens.
-    /// @param destinationChainId Chain ID of the destination (e.g. 1 for Ethereum Mainnet).
+    /// @param destinationChainId The chain ID where tokens should be released (e.g., 11155111 for Sepolia, 1 for Mainnet).
     function lock(address recipient, uint256 destinationChainId) external payable nonReentrant {
         require(msg.value > 0, "BridgeLock: zero value");
         require(recipient != address(0), "BridgeLock: zero recipient");
