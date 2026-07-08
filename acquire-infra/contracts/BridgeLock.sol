@@ -13,7 +13,8 @@ contract BridgeLock is ReentrancyGuard, Ownable {
         address indexed from,
         address indexed recipient,
         uint256 amount,
-        uint64  nonce
+        uint64  nonce,
+        uint256 destinationChainId
     );
 
     event Sweep(address indexed to, uint256 amount);
@@ -21,12 +22,14 @@ contract BridgeLock is ReentrancyGuard, Ownable {
     constructor(address initialOwner) Ownable(initialOwner) {}
 
     /// @notice Lock msg.value to be released to recipient on the destination chain.
-    /// @param recipient Destination chain address to receive the released tokens.
-    function lock(address recipient) external payable nonReentrant {
+    /// @param recipient         Destination chain address to receive the released tokens.
+    /// @param destinationChainId Chain ID of the destination (e.g. 1 for Ethereum Mainnet).
+    function lock(address recipient, uint256 destinationChainId) external payable nonReentrant {
         require(msg.value > 0, "BridgeLock: zero value");
         require(recipient != address(0), "BridgeLock: zero recipient");
+        require(destinationChainId > 0, "BridgeLock: invalid chain ID");
         uint64 nonce = lockNonce++;
-        emit Lock(msg.sender, recipient, msg.value, nonce);
+        emit Lock(msg.sender, recipient, msg.value, nonce, destinationChainId);
     }
 
     /// @notice Emergency drain — owner only.

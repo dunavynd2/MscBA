@@ -17,16 +17,17 @@ import (
 )
 
 // lockEventSig is the keccak256 of the Lock event signature from BridgeLock.sol.
-// Lock(address indexed from, address indexed recipient, uint256 amount, uint64 nonce)
-var lockEventSig = crypto.Keccak256Hash([]byte("Lock(address,address,uint256,uint64)"))
+// Lock(address indexed from, address indexed recipient, uint256 amount, uint64 nonce, uint256 destinationChainId)
+var lockEventSig = crypto.Keccak256Hash([]byte("Lock(address,address,uint256,uint64,uint256)"))
 
 // LockEvent is decoded from a BridgeLock.Lock log.
 type LockEvent struct {
-	TxHash    common.Hash
-	From      common.Address
-	Recipient common.Address
-	Amount    *big.Int
-	LockNonce uint64
+	TxHash              common.Hash
+	From                common.Address
+	Recipient           common.Address
+	Amount              *big.Int
+	LockNonce           uint64
+	DestinationChainId  *big.Int
 }
 
 // BridgeRelay subscribes to LockEvents on the source chain and submits
@@ -125,10 +126,20 @@ func (r *BridgeRelay) Run(ctx context.Context) error {
 func (r *BridgeRelay) RelayLockEvent(ctx context.Context, event *LockEvent) error {
 	r.audit.Log(audit.Entry{
 		Event:  "relay_lock_received",
+		Chain:  event.DestinationChainId.String(),
 		TxHash: event.TxHash.Hex(),
 		From:   event.From.Hex(),
 		Value:  event.Amount.String(),
 	})
+
+	if event.DestinationChainId.Cmp(r.destChainID) != 0 {
+		r.audit.Log(audit.Entry{
+			Event: "relay_chain_mismatch",
+			Chain: event.DestinationChainId.String(),
+			Error: fmt.Sprintf("relay handles chain %s, got %s", r.destChainID, event.DestinationChainId),
+		})
+		return nil
+	}
 
 	if err := r.verifyLock(ctx, event); err != nil {
 		return fmt.Errorf("verify lock: %w", err)
@@ -221,10 +232,11 @@ func (r *BridgeRelay) nextNonce(ctx context.Context) (uint64, error) {
 // parseLockEvent decodes a BridgeLock.Lock log.
 // Solidity ABI encoding:
 //   topic[0] = eventSig
-//   topic[1] = from      (indexed address)
-//   topic[2] = recipient (indexed address)
-//   data[0:32]  = amount  (uint256)
-//   data[32:64] = nonce   (uint64 padded to 32 bytes)
+//   topic[1] = from               (indexed address)
+//   topic[2] = recipient          (indexed address)
+//   data[0:32]  = amount          (uint256)
+//   data[32:64] = nonce           (uint64 padded to 32 bytes)
+//   data[64:96] = destinationChainId (uint256)
 func parseLockEvent(log ethtypes.Log) (*LockEvent, error) {
 	if len(log.Topics) < 3 {
 		return nil, fmt.Errorf("expected 3 topics, got %d", len(log.Topics))
@@ -232,15 +244,16 @@ func parseLockEvent(log ethtypes.Log) (*LockEvent, error) {
 	if log.Topics[0] != lockEventSig {
 		return nil, fmt.Errorf("unexpected event sig: %s", log.Topics[0].Hex())
 	}
-	if len(log.Data) < 64 {
+	if len(log.Data) < 96 {
 		return nil, fmt.Errorf("log data too short: %d bytes", len(log.Data))
 	}
 	return &LockEvent{
-		TxHash:    log.TxHash,
-		From:      common.BytesToAddress(log.Topics[1].Bytes()),
-		Recipient: common.BytesToAddress(log.Topics[2].Bytes()),
-		Amount:    new(big.Int).SetBytes(log.Data[:32]),
-		LockNonce: new(big.Int).SetBytes(log.Data[32:64]).Uint64(),
+		TxHash:             log.TxHash,
+		From:               common.BytesToAddress(log.Topics[1].Bytes()),
+		Recipient:          common.BytesToAddress(log.Topics[2].Bytes()),
+		Amount:             new(big.Int).SetBytes(log.Data[:32]),
+		LockNonce:          new(big.Int).SetBytes(log.Data[32:64]).Uint64(),
+		DestinationChainId: new(big.Int).SetBytes(log.Data[64:96]),
 	}, nil
 }
 
