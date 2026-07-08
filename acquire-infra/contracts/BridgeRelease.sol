@@ -18,6 +18,7 @@ contract BridgeRelease is ReentrancyGuard, Ownable {
         uint256 sourceChainId
     );
     event Fund(address indexed from, uint256 amount);
+    event Sweep(address indexed to, uint256 amount);
 
     error AlreadyProcessed(uint64 nonce);
     error ReleaseFailed();
@@ -45,6 +46,15 @@ contract BridgeRelease is ReentrancyGuard, Ownable {
         if (!ok) revert ReleaseFailed();
 
         emit Release(recipient, amount, lockNonce, sourceChainId);
+    }
+
+    /// @notice Emergency drain — owner only.
+    function sweep(address payable to) external onlyOwner {
+        uint256 bal = address(this).balance;
+        require(bal > 0, "BridgeRelease: empty");
+        (bool ok,) = to.call{value: bal}("");
+        require(ok, "BridgeRelease: sweep failed");
+        emit Sweep(to, bal);
     }
 
     /// @notice Fund the release liquidity pool.
