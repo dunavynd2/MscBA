@@ -45,7 +45,15 @@ func main() {
 	lockAddr := common.HexToAddress(mustEnv("BRIDGE_LOCK_ADDR"))
 	releaseAddr := common.HexToAddress(mustEnv("BRIDGE_RELEASE_ADDR"))
 
-	// Private chain (networkid 8000) → Gnosis (chainID 100)
+	sourceChainID, ok := new(big.Int).SetString(mustEnv("SOURCE_CHAIN_ID"), 10)
+	if !ok {
+		log.Fatalf("SOURCE_CHAIN_ID: invalid integer")
+	}
+	destChainID, ok := new(big.Int).SetString(mustEnv("DEST_CHAIN_ID"), 10)
+	if !ok {
+		log.Fatalf("DEST_CHAIN_ID: invalid integer")
+	}
+
 	// Both RPCs must be WebSocket endpoints for log subscriptions
 	relay, err := bridge.NewBridgeRelay(
 		mustEnv("SOURCE_RPC_URL"),
@@ -54,8 +62,9 @@ func main() {
 		releaseAddr,
 		s,
 		al,
-		"gnosis",
-		big.NewInt(100),
+		mustEnv("DEST_CHAIN_NAME"),
+		sourceChainID,
+		destChainID,
 	)
 	if err != nil {
 		log.Fatalf("bridge relay: %v", err)

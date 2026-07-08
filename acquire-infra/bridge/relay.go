@@ -43,8 +43,9 @@ type BridgeRelay struct {
 	// BridgeRelease.sol address on dest chain
 	releaseAddr common.Address
 
-	destChainID *big.Int
-	destChain   string
+	sourceChainID *big.Int
+	destChainID   *big.Int
+	destChain     string
 
 	nonceMu       sync.Mutex
 	pendingNonces map[string]uint64
@@ -56,7 +57,7 @@ func NewBridgeRelay(
 	s *signer.Signer,
 	al *audit.Logger,
 	destChain string,
-	destChainID *big.Int,
+	sourceChainID, destChainID *big.Int,
 ) (*BridgeRelay, error) {
 	// Source chain requires a WebSocket RPC for log subscriptions
 	srcClient, err := ethclient.Dial(sourceRPC)
@@ -75,6 +76,7 @@ func NewBridgeRelay(
 		audit:         al,
 		lockAddr:      lockAddr,
 		releaseAddr:   releaseAddr,
+		sourceChainID: sourceChainID,
 		destChainID:   destChainID,
 		destChain:     destChain,
 		pendingNonces: make(map[string]uint64),
@@ -151,7 +153,7 @@ func (r *BridgeRelay) RelayLockEvent(ctx context.Context, event *LockEvent) erro
 	}
 
 	// TODO: replace with abigen-generated BridgeRelease binding
-	data, err := encodeReleaseCall(event.Recipient, event.Amount, event.LockNonce)
+	data, err := encodeReleaseCall(event.Recipient, event.Amount, event.LockNonce, r.sourceChainID)
 	if err != nil {
 		return fmt.Errorf("encode release call: %w", err)
 	}
@@ -257,23 +259,19 @@ func parseLockEvent(log ethtypes.Log) (*LockEvent, error) {
 	}, nil
 }
 
-// encodeReleaseCall hand-encodes release(address,uint256,uint64).
+// encodeReleaseCall hand-encodes release(address,uint256,uint64,uint256).
 // Replace this with abigen output once BridgeRelease ABI is available.
-func encodeReleaseCall(recipient common.Address, amount *big.Int, lockNonce uint64) ([]byte, error) {
-	// keccak256("release(address,uint256,uint64)")[:4]
-	sig := crypto.Keccak256([]byte("release(address,uint256,uint64)"))[:4]
+func encodeReleaseCall(recipient common.Address, amount *big.Int, lockNonce uint64, sourceChainID *big.Int) ([]byte, error) {
+	// keccak256("release(address,uint256,uint64,uint256)")[:4]
+	sig := crypto.Keccak256([]byte("release(address,uint256,uint64,uint256)"))[:4]
 
-	// ABI-encode: address (32 bytes, left-padded), uint256 (32 bytes), uint64 (32 bytes)
-	enc := make([]byte, 4+32+32+32)
+	// ABI-encode: address (32), uint256 (32), uint64 (32), uint256 (32)
+	enc := make([]byte, 4+32+32+32+32)
 	copy(enc[0:4], sig)
 	copy(enc[16:36], recipient.Bytes()) // right-align address in 32-byte slot
-	amount256 := make([]byte, 32)
-	amount.FillBytes(amount256)
-	copy(enc[36:68], amount256)
-	nonceBig := new(big.Int).SetUint64(lockNonce)
-	nonce256 := make([]byte, 32)
-	nonceBig.FillBytes(nonce256)
-	copy(enc[68:100], nonce256)
+	amount.FillBytes(enc[36:68])
+	new(big.Int).SetUint64(lockNonce).FillBytes(enc[68:100])
+	sourceChainID.FillBytes(enc[100:132])
 	return enc, nil
 }
 
