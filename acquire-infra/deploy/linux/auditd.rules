@@ -1,0 +1,35 @@
+## Acquire LLC — auditd rules
+## Load with: auditctl -R /etc/audit/rules.d/acquire.rules
+
+# Delete existing rules
+-D
+
+# Increase buffer size for high-throughput environments
+-b 8192
+
+# Key directory access (wrapped keys on host)
+-a always,exit -F arch=b64 -S open,openat,openat2 -F dir=/etc/keys  -F perm=r -k key_access
+-a always,exit -F arch=b64 -S open,openat,openat2 -F dir=/keys      -F perm=r -k key_access
+
+# HSM device access
+-w /dev/hsm0 -p rwxa -k hsm_access
+
+# Process execution — catch any unexpected binaries spawning in service containers
+-a always,exit -F arch=b64 -S execve  -k exec
+-a always,exit -F arch=b32 -S execve  -k exec
+
+# Network connections (flag outbound from signing subnet)
+-a always,exit -F arch=b64 -S connect -k network_connect
+
+# Identity file changes
+-w /etc/passwd       -p wa -k identity
+-w /etc/shadow       -p wa -k identity
+-w /etc/group        -p wa -k identity
+-w /etc/sudoers      -p wa -k sudoers
+-w /etc/sudoers.d/   -p wa -k sudoers
+
+# SSH key changes
+-w /home/dunavyn/.ssh -p wa -k ssh_keys
+
+# Make rules immutable until reboot (remove this line during initial tuning)
+# -e 2
